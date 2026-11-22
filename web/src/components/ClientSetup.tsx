@@ -16,7 +16,7 @@ export function ClientSetup({ token }: { token: string }) {
     `  -e EXPOSR_SERVER=${server} \\`,
     `  -e EXPOSR_TOKEN=${token} \\`,
     `  -e EXPOSR_FINGERPRINT=${fingerprint} \\`,
-    "  exposr-client",
+    "  ghcr.io/gallifree/exposr-client",
   ].join("\n");
   const cli = `exposr-client --server ${server} \\\n  --token ${token} \\\n  --fingerprint ${fingerprint}`;
 

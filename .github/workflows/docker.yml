@@ -1,0 +1,160 @@
+# Publishes multi-arch images to GitHub Container Registry:
+#   ghcr.io/gallifree/exposr          (server, Dockerfile target `server`)
+#   ghcr.io/gallifree/exposr-client   (client, Dockerfile target `client`)
+# Tags: `latest` + `sha-<short>` on main, `X.Y.Z` / `X.Y` on `vX.Y.Z` tags.
+# Each architecture builds on a native runner (no slow QEMU emulation), then
+# the per-arch images are merged into one multi-arch manifest.
+
+name: Docker images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SERVER_IMAGE: ghcr.io/${{ github.repository }}
+  CLIENT_IMAGE: ghcr.io/${{ github.repository }}-client
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Platform slug
+        run: echo "SLUG=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta-server
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.SERVER_IMAGE }}
+          labels: org.opencontainers.image.title=exposr
+
+      - id: meta-client
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.CLIENT_IMAGE }}
+          labels: org.opencontainers.image.title=exposr-client
+
+      - name: Build server
+        id: server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta-server.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.SLUG }}
+          cache-to: type=gha,mode=max,scope=${{ env.SLUG }}
+          outputs: type=image,name=${{ env.SERVER_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+
+      - name: Build client
+        id: client
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: client
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta-client.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.SLUG }}
+          outputs: type=image,name=${{ env.CLIENT_IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+
+      - name: Export digests
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p digests/server digests/client
+          touch "digests/server/${SERVER#sha256:}" "digests/client/${CLIENT#sha256:}"
+        env:
+          SERVER: ${{ steps.server.outputs.digest }}
+          CLIENT: ${{ steps.client.outputs.digest }}
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digests-${{ env.SLUG }}
+          path: digests/*
+          retention-days: 1
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta-server
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.SERVER_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - id: meta-client
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.CLIENT_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create multi-arch manifests
+        run: |
+          merge() { # image dir tags-json
+            local image=$1 dir=$2 tags=$3
+            docker buildx imagetools create \
+              $(jq -r '.tags | map("-t " + .) | join(" ")' <<< "$tags") \
+              $(printf "$image@sha256:%s " $(ls "$dir"))
+          }
+          merge "$SERVER_IMAGE" digests/server "$SERVER_META"
+          merge "$CLIENT_IMAGE" digests/client "$CLIENT_META"
+        env:
+          SERVER_META: ${{ steps.meta-server.outputs.json }}
+          CLIENT_META: ${{ steps.meta-client.outputs.json }}
+
+      - name: Inspect
+        run: |
+          docker buildx imagetools inspect "$SERVER_IMAGE:sha-${GITHUB_SHA::7}"
+          docker buildx imagetools inspect "$CLIENT_IMAGE:sha-${GITHUB_SHA::7}"

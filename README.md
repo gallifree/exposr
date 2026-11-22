@@ -46,13 +46,12 @@ Notes:
 In the UI, go to **Clients → New client**. The ready-to-copy commands, including the token, are shown once:
 
 ```sh
-# Docker: build the client image once with
-#   docker build --target client -t exposr-client .
+# Docker (multi-arch image published by CI: amd64 + arm64)
 docker run -d --name exposr-client --restart unless-stopped --network host \
   -e EXPOSR_SERVER=exposr.example.com:2333 \
   -e EXPOSR_TOKEN=<token> \
   -e EXPOSR_FINGERPRINT=<sha256> \
-  exposr-client
+  ghcr.io/gallifree/exposr-client
 
 # or the binary
 exposr-client --server exposr.example.com:2333 --token <token> --fingerprint <sha256>
@@ -60,6 +59,16 @@ exposr-client --server exposr.example.com:2333 --token <token> --fingerprint <sh
 
 Then go to **Services → New service**: pick the client, the protocol, a public port, and the local address as seen
 from the client (e.g. `127.0.0.1:25565`). The port opens immediately and the client starts forwarding.
+
+## Docker images
+
+GitHub Actions (`.github/workflows/docker.yml`) builds `linux/amd64` and `linux/arm64` images on every push to `main`
+and on `v*` tags:
+
+- `ghcr.io/gallifree/exposr`: the server (UI included)
+- `ghcr.io/gallifree/exposr-client`: the client
+
+Tags: `latest` and `sha-<commit>` from `main`, and `1.2.3` / `1.2` from a `v1.2.3` tag. Pull requests build without pushing.
 
 ## Configuration (server)
 
