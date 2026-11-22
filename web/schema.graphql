@@ -1,0 +1,201 @@
+type Client {
+	id: ID!
+	name: String!
+	enabled: Boolean!
+	createdAt: String!
+	lastSeenAt: String
+	online: Boolean!
+	connectedAt: String
+	remoteAddr: String
+	clientVersion: String
+	services: [Service!]!
+}
+
+"""
+Returned when a client is created or its token regenerated. The token is
+only ever shown here.
+"""
+type ClientWithToken {
+	client: Client!
+	token: String!
+}
+
+input CreateServiceInput {
+	name: String!
+	clientId: ID!
+	protocol: Protocol!
+	bindPort: Int!
+	"""
+	`host:port` reachable from the client, e.g. `127.0.0.1:8080`.
+	"""
+	localAddr: String!
+	enabled: Boolean! = true
+}
+
+type Event {
+	id: ID!
+	at: String!
+	kind: String!
+	subject: String!
+	detail: String
+	actor: String
+}
+
+type Live {
+	onlineClientIds: [ID!]!
+	services: [ServiceLive!]!
+	clientsTotal: Int!
+	servicesTotal: Int!
+	servicesListening: Int!
+	activeConnections: Int!
+	bytesIn: Int!
+	bytesOut: Int!
+}
+
+type Mutation {
+	login(username: String!, password: String!): User!
+	logout: Boolean!
+	changePassword(current: String!, newPassword: String!): Boolean!
+	createUser(username: String!, password: String!): User!
+	deleteUser(id: ID!): Boolean!
+	createClient(name: String!): ClientWithToken!
+	updateClient(id: ID!, input: UpdateClientInput!): Client!
+	"""
+	Issues a new token; the old one stops working and the client is disconnected.
+	"""
+	regenerateClientToken(id: ID!): ClientWithToken!
+	"""
+	Deletes a client and all its services.
+	"""
+	deleteClient(id: ID!): Boolean!
+	createService(input: CreateServiceInput!): Service!
+	updateService(id: ID!, input: UpdateServiceInput!): Service!
+	deleteService(id: ID!): Boolean!
+}
+
+enum Protocol {
+	TCP
+	UDP
+}
+
+type Query {
+	"""
+	The signed-in admin, or null.
+	"""
+	me: User
+	serverInfo: ServerInfo!
+	clients: [Client!]!
+	client(id: ID!): Client
+	services: [Service!]!
+	users: [User!]!
+	events(limit: Int! = 50): [Event!]!
+	live: Live!
+}
+
+type ServerInfo {
+	version: String!
+	controlPort: Int!
+	"""
+	Hostname clients should connect to (`PUBLIC_HOST`), if configured.
+	"""
+	publicHost: String
+	"""
+	SHA-256 fingerprint of the tunnel TLS certificate, for client pinning.
+	"""
+	fingerprint: String!
+	uptimeSeconds: Int!
+	"""
+	Allowed public ports (`SERVICE_PORT_RANGE`), if restricted.
+	"""
+	portRangeStart: Int
+	portRangeEnd: Int
+}
+
+type Service {
+	id: ID!
+	name: String!
+	clientId: ID!
+	client: Client
+	protocol: Protocol!
+	bindPort: Int!
+	localAddr: String!
+	enabled: Boolean!
+	createdAt: String!
+	runtime: ServiceLive!
+}
+
+"""
+Live state of one service (polled or pushed via the `live` subscription).
+"""
+type ServiceLive {
+	id: ID!
+	status: ServiceStatus!
+	error: String
+	activeConnections: Int!
+	"""
+	Connections since the server started.
+	"""
+	totalConnections: Int!
+	"""
+	Total bytes visitor → service, all time.
+	"""
+	bytesIn: Int!
+	"""
+	Total bytes service → visitor, all time.
+	"""
+	bytesOut: Int!
+}
+
+enum ServiceStatus {
+	"""
+	Disabled, or its client is disabled.
+	"""
+	INACTIVE
+	LISTENING
+	"""
+	The public port could not be bound (see `error`).
+	"""
+	FAILED
+}
+
+type Subscription {
+	"""
+	Pushes a fresh [`Live`] snapshot every `intervalMs` (min 500).
+	"""
+	live(intervalMs: Int! = 2000): Live!
+}
+
+input UpdateClientInput {
+	name: String
+	enabled: Boolean
+}
+
+input UpdateServiceInput {
+	name: String
+	clientId: ID
+	protocol: Protocol
+	bindPort: Int
+	localAddr: String
+	enabled: Boolean
+}
+
+type User {
+	id: ID!
+	username: String!
+	createdAt: String!
+	lastLoginAt: String
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+schema {
+	query: Query
+	mutation: Mutation
+	subscription: Subscription
+}

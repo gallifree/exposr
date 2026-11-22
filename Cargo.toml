@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/proto", "crates/server", "crates/client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+proto = { path = "crates/proto", package = "exposr-proto" }
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+hex = "0.4"
+rand = "0.9"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webpki-roots = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

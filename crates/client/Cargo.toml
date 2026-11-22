@@ -1,0 +1,15 @@
+[package]
+name = "exposr-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+proto.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+rustls-pki-types.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rustls.workspace = true
