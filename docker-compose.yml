@@ -8,6 +8,7 @@ services:
     build:
       context: .
       target: server
+    image: ghcr.io/gallifree/exposr:latest
     restart: unless-stopped
     environment:
       - SERVICE_FQDN_EXPOSR_8080
@@ -46,7 +47,8 @@ services:
     volumes:
       - mongo-data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 10
