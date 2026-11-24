@@ -27,6 +27,8 @@ async-graphql = "7.2"
 async-graphql-axum = "7.2"
 axum = { version = "0.8", features = ["ws"] }
 futures = "0.3"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 mongodb = "3"
 rcgen = "0.14"
 tokio-stream = "0.1"

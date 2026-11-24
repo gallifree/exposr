@@ -76,6 +76,10 @@ type Mutation {
 enum Protocol {
 	TCP
 	UDP
+	"""
+	Created by `POST /api/register` only; served under `/t/<secret>/`.
+	"""
+	HTTP
 }
 
 type Query {

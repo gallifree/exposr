@@ -77,6 +77,8 @@ fn valid_local_addr(addr: &str) -> Result<String> {
 pub enum Protocol {
     Tcp,
     Udp,
+    /// Created by `POST /api/register` only; served under `/t/<secret>/`.
+    Http,
 }
 
 impl From<proto::Protocol> for Protocol {
@@ -84,6 +86,7 @@ impl From<proto::Protocol> for Protocol {
         match p {
             proto::Protocol::Tcp => Protocol::Tcp,
             proto::Protocol::Udp => Protocol::Udp,
+            proto::Protocol::Http => Protocol::Http,
         }
     }
 }
@@ -93,6 +96,7 @@ impl From<Protocol> for proto::Protocol {
         match p {
             Protocol::Tcp => proto::Protocol::Tcp,
             Protocol::Udp => proto::Protocol::Udp,
+            Protocol::Http => proto::Protocol::Http,
         }
     }
 }
@@ -419,6 +423,9 @@ pub struct ClientWithToken {
 }
 
 fn check_port(app: &App, protocol: Protocol, port: i32) -> Result<()> {
+    if protocol == Protocol::Http {
+        return Err(err("HTTP_VIA_REGISTRATION_ONLY"));
+    }
     if !(1..=65535).contains(&port) {
         return Err(err("INVALID_PORT"));
     }
@@ -628,6 +635,7 @@ impl Mutation {
             created_at: DateTime::now(),
             bytes_in: 0,
             bytes_out: 0,
+            http_key: None,
         };
         app.store.services().insert_one(&service).await.map_err(|e| write_err(e, "NAME_TAKEN"))?;
         app.store.log("service.created", &service.name, Some(format!("{}/{}", service.bind_port, service.protocol)), Some(&me.username)).await;

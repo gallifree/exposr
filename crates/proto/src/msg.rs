@@ -13,6 +13,9 @@ pub enum Hello {
 pub enum Protocol {
     Tcp,
     Udp,
+    /// No public port: HTTP requests to `/t/<secret>/…` on the admin listener are
+    /// forwarded like TCP visitors (the client handles it exactly like `Tcp`).
+    Http,
 }
 
 impl std::fmt::Display for Protocol {
@@ -20,6 +23,7 @@ impl std::fmt::Display for Protocol {
         f.write_str(match self {
             Protocol::Tcp => "tcp",
             Protocol::Udp => "udp",
+            Protocol::Http => "http",
         })
     }
 }

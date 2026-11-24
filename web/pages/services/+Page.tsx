@@ -135,7 +135,7 @@ export default function Page() {
                   {services.map((s) => {
                     const rt = byId(s.id) ?? s.runtime;
                     const r = rates.byService[s.id];
-                    const publicAddr = `${host}:${s.bindPort}`;
+                    const publicAddr = s.protocol === "HTTP" ? "/t/…" : `${host}:${s.bindPort}`;
                     return (
                       <motion.tr
                         key={s.id}

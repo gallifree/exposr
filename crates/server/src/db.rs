@@ -38,6 +38,9 @@ pub struct ServiceDoc {
     pub bytes_in: i64,
     #[serde(default)]
     pub bytes_out: i64,
+    /// `http` services: SHA-256 of the secret in their public URL (`/t/<secret>/`).
+    #[serde(default)]
+    pub http_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +123,24 @@ impl Store {
         };
         self.clients().create_index(unique(doc! { "token_hash": 1 })).await?;
         self.clients().create_index(unique(doc! { "name": 1 })).await?;
-        self.services().create_index(unique(doc! { "protocol": 1, "bind_port": 1 })).await?;
+        // Ports are unique among tcp/udp services only: http ones all have bind_port 0.
+        let _ = self.services().drop_index("protocol_1_bind_port_1").await;
+        let ports = IndexOptions::builder()
+            .name("ports_unique".to_owned())
+            .unique(true)
+            .partial_filter_expression(doc! { "protocol": { "$in": ["tcp", "udp"] } })
+            .build();
+        self.services()
+            .create_index(IndexModel::builder().keys(doc! { "protocol": 1, "bind_port": 1 }).options(ports).build())
+            .await?;
+        self.services()
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "http_key": 1 })
+                    .options(IndexOptions::builder().unique(true).sparse(true).build())
+                    .build(),
+            )
+            .await?;
         self.services().create_index(unique(doc! { "name": 1 })).await?;
         self.services().create_index(IndexModel::builder().keys(doc! { "client_id": 1 }).build()).await?;
         self.users().create_index(unique(doc! { "username": 1 })).await?;
@@ -159,6 +179,7 @@ impl Store {
                     bind_port: u16::try_from(s.bind_port).ok()?,
                     local_addr: s.local_addr,
                     enabled: s.enabled,
+                    http_key: s.http_key,
                 })
             })
             .collect();

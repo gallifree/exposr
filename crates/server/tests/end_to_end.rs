@@ -99,6 +99,7 @@ async fn tcp_and_udp_end_to_end() {
         bind_port: tcp_port,
         local_addr: tcp_local.to_string(),
         enabled: true,
+        http_key: None,
     };
     let udp = ServiceCfg {
         id: "s-udp".into(),
@@ -181,4 +182,72 @@ async fn tcp_and_udp_end_to_end() {
     eventually("client kicked", || async { engine.online_clients().is_empty().then_some(()) }).await;
 
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Local HTTP server that answers every request with its request line.
+async fn http_echo() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (mut s, _) = l.accept().await.unwrap();
+            tokio::spawn(async move {
+                let mut buf = vec![0; 4096];
+                let n = s.read(&mut buf).await.unwrap();
+                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or_default().to_owned();
+                let resp = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{line}", line.len());
+                s.write_all(resp.as_bytes()).await.unwrap();
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_tunnel_end_to_end() {
+    let dir = std::env::temp_dir().join(format!("exposr-test-{}", rand::random::<u32>()));
+    let tls = exposr_server::tls::load(None, None, &dir).unwrap();
+    let engine = Engine::new("127.0.0.1".parse().unwrap());
+    let control = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let control_addr = control.local_addr().unwrap();
+    tokio::spawn(engine.clone().run_control(control, tls.acceptor.clone()));
+
+    let client = ClientCfg { id: "c1".into(), name: "phone".into(), token_hash: proto::sha256_hex(TOKEN.as_bytes()), enabled: true };
+    let service = ServiceCfg {
+        id: "s-http".into(),
+        name: "mcp".into(),
+        client_id: "c1".into(),
+        protocol: Protocol::Http,
+        bind_port: 0,
+        local_addr: http_echo().await.to_string(),
+        enabled: true,
+        http_key: Some(proto::sha256_hex(b"s3cret")),
+    };
+    engine.apply(Snapshot { clients: vec![client], services: vec![service] }).await;
+    tokio::spawn(exposr_client::run(exposr_client::Config {
+        server: control_addr.to_string(),
+        server_name: Some("exposr-server".into()),
+        token: TOKEN.into(),
+        tls: proto::tls::client_config(proto::tls::Trust::Fingerprint(tls.fingerprint.clone())).unwrap(),
+    }));
+
+    let web = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let web_addr = web.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(web, exposr_server::web::tunnel_router(engine)).await });
+
+    let get = |path: &'static str| async move {
+        let mut s = TcpStream::connect(web_addr).await.ok()?;
+        let req = format!("POST {path} HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        s.write_all(req.as_bytes()).await.ok()?;
+        let mut out = String::new();
+        s.read_to_string(&mut out).await.ok()?;
+        Some(out)
+    };
+    let ok = eventually("http tunnel", || async {
+        get("/t/s3cret/mcp?a=1").await.filter(|r| r.starts_with("HTTP/1.1 200"))
+    })
+    .await;
+    assert!(ok.ends_with("POST /mcp?a=1 HTTP/1.1"), "{ok}");
+    let wrong = get("/t/nope/mcp").await.unwrap();
+    assert!(wrong.starts_with("HTTP/1.1 404"), "{wrong}");
 }

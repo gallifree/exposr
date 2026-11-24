@@ -1,14 +1,25 @@
-//! HTTP layer: GraphQL over POST + WebSocket, health check, static admin UI.
+//! HTTP layer: GraphQL over POST + WebSocket, health check, static admin UI,
+//! client self-registration and the `/t/<secret>/` HTTP tunnels.
 
 use crate::app::App;
 use crate::auth;
 use crate::graphql::{AppSchema, RequestMeta, SessionToken};
 use async_graphql::Data;
 use async_graphql_axum::{GraphQLProtocol, GraphQLRequest, GraphQLResponse, GraphQLWebSocket};
-use axum::extract::{State, WebSocketUpgrade};
+use crate::db::{ClientDoc, ServiceDoc};
+use crate::engine::Engine;
+use axum::body::Body;
+use axum::extract::{Path, Request, State, WebSocketUpgrade};
+use axum::Json;
+use mongodb::bson::{DateTime, doc, oid::ObjectId};
+use serde::Deserialize;
+use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,8 +38,132 @@ pub fn router(app: Arc<App>, schema: AppSchema, web_dir: PathBuf) -> Router {
         .route("/api/graphql", post(graphql))
         .route("/api/graphql/ws", get(graphql_ws))
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/register", post(register))
         .fallback_service(files)
-        .with_state(AppState { app, schema })
+        .with_state(AppState { app: app.clone(), schema })
+        .merge(tunnel_router(app.engine.clone()))
+}
+
+/// `/t/<secret>/<path>` → `/<path>` on the local service of an `http` tunnel.
+pub fn tunnel_router(engine: Engine) -> Router {
+    Router::new().route("/t/{secret}", any(tunnel)).route("/t/{secret}/{*rest}", any(tunnel)).with_state(engine)
+}
+
+async fn tunnel(State(engine): State<Engine>, Path(p): Path<HashMap<String, String>>, mut req: Request) -> Response {
+    let Some(stream) = engine.open_http(&proto::sha256_hex(p["secret"].as_bytes())).await else {
+        return (StatusCode::NOT_FOUND, "unknown tunnel").into_response();
+    };
+    let result = async {
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream?)).await?;
+        tokio::spawn(conn);
+        let rest = p.get("rest").map_or("", String::as_str);
+        let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+        *req.uri_mut() = format!("/{rest}{query}").parse()?;
+        anyhow::Ok(sender.send_request(req).await?.map(Body::new))
+    }
+    .await;
+    result.unwrap_or_else(|e| (StatusCode::BAD_GATEWAY, format!("tunnel unavailable: {e:#}")).into_response())
+}
+
+/// Where self-registered clients forward their tunnel (the Rustart MCP server).
+const REGISTERED_LOCAL_ADDR: &str = "127.0.0.1:8765";
+/// shortcut: one global budget for new registrations, per process; use a per-IP limit if it gets abused.
+const REGISTRATIONS_PER_HOUR: u32 = 30;
+
+#[derive(Deserialize, Default)]
+struct RegisterReq {
+    /// Token of an already registered client: issues a new URL secret instead.
+    token: Option<String>,
+}
+
+/// Creates a client with one `http` service (or rotates its URL secret).
+async fn register(State(st): State<AppState>, body: Option<Json<RegisterReq>>) -> Response {
+    let app = &st.app;
+    if !app.allow_registration {
+        return (StatusCode::NOT_FOUND, "registration is disabled").into_response();
+    }
+    let Some(host) = &app.public_host else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "PUBLIC_HOST is not set").into_response();
+    };
+    let secret = auth::random_token(24);
+    let http_key = proto::sha256_hex(secret.as_bytes());
+    let result = match body.and_then(|Json(b)| b.token) {
+        Some(token) => rotate(app, &token, &http_key).await.map(|()| None),
+        None => create(app, &http_key).await.map(Some),
+    };
+    match result {
+        Ok(token) => {
+            app.resync().await;
+            Json(json!({
+                "server": format!("{host}:{}", app.control_port),
+                "fingerprint": app.fingerprint,
+                "token": token,
+                "path": format!("/t/{secret}"),
+            }))
+            .into_response()
+        }
+        Err(resp) => resp,
+    }
+}
+
+async fn rotate(app: &crate::app::App, token: &str, http_key: &str) -> Result<(), Response> {
+    let filter = doc! { "token_hash": proto::sha256_hex(token.as_bytes()) };
+    let client = app.store.clients().find_one(filter).await.map_err(internal)?;
+    let client = client.ok_or_else(|| (StatusCode::UNAUTHORIZED, "unknown token").into_response())?;
+    app.store
+        .services()
+        .update_many(doc! { "client_id": client.id, "protocol": "http" }, doc! { "$set": { "http_key": http_key } })
+        .await
+        .map_err(internal)?;
+    app.store.log("client.url_rotated", &client.name, None, None).await;
+    Ok(())
+}
+
+async fn create(app: &crate::app::App, http_key: &str) -> Result<String, Response> {
+    static BUDGET: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
+    {
+        let mut b = BUDGET.lock().unwrap();
+        let (since, used) = b.get_or_insert((Instant::now(), 0));
+        if since.elapsed() > Duration::from_secs(3600) {
+            (*since, *used) = (Instant::now(), 0);
+        }
+        if *used >= REGISTRATIONS_PER_HOUR {
+            return Err((StatusCode::TOO_MANY_REQUESTS, "too many registrations, retry later").into_response());
+        }
+        *used += 1;
+    }
+    let token = auth::random_token(24);
+    let name = format!("auto-{}", auth::random_token(4));
+    let client = ClientDoc {
+        id: ObjectId::new(),
+        name: name.clone(),
+        token_hash: proto::sha256_hex(token.as_bytes()),
+        enabled: true,
+        created_at: DateTime::now(),
+        last_seen_at: None,
+    };
+    let service = ServiceDoc {
+        id: ObjectId::new(),
+        name: name.clone(),
+        client_id: client.id,
+        protocol: proto::Protocol::Http,
+        bind_port: 0,
+        local_addr: REGISTERED_LOCAL_ADDR.into(),
+        enabled: true,
+        created_at: DateTime::now(),
+        bytes_in: 0,
+        bytes_out: 0,
+        http_key: Some(http_key.into()),
+    };
+    app.store.clients().insert_one(&client).await.map_err(internal)?;
+    app.store.services().insert_one(&service).await.map_err(internal)?;
+    app.store.log("client.registered", &name, None, None).await;
+    Ok(token)
+}
+
+fn internal(e: impl std::fmt::Display) -> Response {
+    tracing::warn!("registration failed: {e}");
+    StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }
 
 fn is_https(headers: &HeaderMap) -> bool {

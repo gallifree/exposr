@@ -84,9 +84,27 @@ Tags: `latest` and `sha-<commit>` from `main`, and `1.2.3` / `1.2` from a `v1.2.
 | `DATA_DIR` | `./data` | Holds the generated certificate |
 | `TLS_CERT` / `TLS_KEY` | none | PEM files to use instead of the self-signed certificate |
 | `WEB_DIR` | `./web/dist/client` | Built admin UI |
+| `ALLOW_REGISTRATION` | `false` | Enables `POST /api/register` (see below) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / random | First account, created only if there are no users. A random password is printed in the logs |
 
 Client: `EXPOSR_SERVER`, `EXPOSR_TOKEN`, `EXPOSR_FINGERPRINT`, or `EXPOSR_CA` (PEM file), and `EXPOSR_SERVER_NAME`.
+
+## HTTP tunnels and self-registration
+
+An `http` service has no public port. Requests to `https://<admin domain>/t/<secret>/<path>` are forwarded
+to `/<path>` on the client's local address, through the admin listener (and so through Coolify's TLS).
+Only the SHA-256 of the secret is stored, so the URL itself is the credential.
+
+With `ALLOW_REGISTRATION=true`, anyone can create such a tunnel without an admin. The Rustart launcher uses
+this to expose its MCP server:
+
+```sh
+curl -X POST https://t.example.com/api/register -H 'Content-Type: application/json' -d '{}'
+# {"server":"t.example.com:2333","fingerprint":"…","token":"…","path":"/t/<secret>"}
+```
+
+The new client gets one `http` service forwarding to `127.0.0.1:8765`. Sending `{"token":"…"}` instead
+issues a new secret for that client (the old URL stops working). New registrations are limited to 30 per hour.
 
 ## How configuration reaches the engine
 

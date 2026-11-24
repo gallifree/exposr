@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 
 pub use udp::UdpHub;
 
-type Tls = TlsStream<TcpStream>;
+pub type Tls = TlsStream<TcpStream>;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -47,6 +47,8 @@ pub struct ServiceCfg {
     pub bind_port: u16,
     pub local_addr: String,
     pub enabled: bool,
+    /// `http` services: SHA-256 of their URL secret.
+    pub http_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -248,6 +250,8 @@ impl Engine {
                 }
                 Err(e) => listener.error = Some(format!("{e:#}")),
             },
+            // Served by the admin HTTP listener through `open_http`.
+            Protocol::Http => {}
         }
         listener
     }
@@ -478,6 +482,30 @@ impl Engine {
     }
 
     async fn handle_visitor(&self, service_id: &str, sock: TcpStream, stats: Arc<ServiceStats>) -> Result<()> {
+        let data = self.open_data(service_id).await?;
+        stats.total.fetch_add(1, Ordering::Relaxed);
+        stats.active.fetch_add(1, Ordering::Relaxed);
+        let res = pump(sock, data, Some(stats.traffic.clone())).await;
+        stats.active.fetch_sub(1, Ordering::Relaxed);
+        res.map_err(Into::into)
+    }
+
+    /// A stream to the local service of the running `http` service whose secret
+    /// hashes to `key_hash`. `None` when no such service is running.
+    pub async fn open_http(&self, key_hash: &str) -> Option<Result<Tls>> {
+        let service_id = {
+            let st = self.lock();
+            let id = st.listeners.values().find(|l| l.cfg.http_key.as_deref() == Some(key_hash))?.cfg.id.clone();
+            if let Some(stats) = st.stats.get(&id) {
+                stats.total.fetch_add(1, Ordering::Relaxed);
+            }
+            id
+        };
+        Some(self.open_data(&service_id).await)
+    }
+
+    /// Asks the service's client to open a data stream to its local address.
+    async fn open_data(&self, service_id: &str) -> Result<Tls> {
         let conn_id = rand::random::<u64>();
         let (otx, orx) = oneshot::channel();
         let tx = {
@@ -500,11 +528,7 @@ impl Engine {
                 bail!("client did not open the data connection");
             }
         };
-        stats.total.fetch_add(1, Ordering::Relaxed);
-        stats.active.fetch_add(1, Ordering::Relaxed);
-        let res = pump(sock, data, Some(stats.traffic.clone())).await;
-        stats.active.fetch_sub(1, Ordering::Relaxed);
-        res.map_err(Into::into)
+        Ok(data)
     }
 }
 

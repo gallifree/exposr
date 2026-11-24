@@ -16,6 +16,8 @@ pub struct App {
     pub admin_port: u16,
     pub public_host: Option<String>,
     pub port_range: Option<(u16, u16)>,
+    /// `POST /api/register` may create clients without an admin.
+    pub allow_registration: bool,
     pub started_at: Instant,
     /// Engine traffic counters already added to the service documents.
     flushed: Mutex<HashMap<String, (u64, u64)>>,
@@ -31,6 +33,7 @@ impl App {
         admin_port: u16,
         public_host: Option<String>,
         port_range: Option<(u16, u16)>,
+        allow_registration: bool,
     ) -> Arc<Self> {
         Arc::new(App {
             store,
@@ -40,6 +43,7 @@ impl App {
             admin_port,
             public_host,
             port_range,
+            allow_registration,
             started_at: Instant::now(),
             flushed: Mutex::default(),
             resync_lock: tokio::sync::Mutex::new(()),

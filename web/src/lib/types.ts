@@ -1,4 +1,4 @@
-export type Protocol = "TCP" | "UDP";
+export type Protocol = "TCP" | "UDP" | "HTTP";
 export type ServiceStatus = "INACTIVE" | "LISTENING" | "FAILED";
 
 export interface User {
