@@ -84,7 +84,6 @@ Tags: `latest` and `sha-<commit>` from `main`, and `1.2.3` / `1.2` from a `v1.2.
 | `DATA_DIR` | `./data` | Holds the generated certificate |
 | `TLS_CERT` / `TLS_KEY` | none | PEM files to use instead of the self-signed certificate |
 | `WEB_DIR` | `./web/dist/client` | Built admin UI |
-| `ALLOW_REGISTRATION` | `false` | Enables `POST /api/register` (see below) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / random | First account, created only if there are no users. A random password is printed in the logs |
 
 Client: `EXPOSR_SERVER`, `EXPOSR_TOKEN`, `EXPOSR_FINGERPRINT`, or `EXPOSR_CA` (PEM file), and `EXPOSR_SERVER_NAME`.
@@ -95,7 +94,7 @@ An `http` service has no public port. Requests to `https://<admin domain>/t/<sec
 to `/<path>` on the client's local address, through the admin listener (and so through Coolify's TLS).
 Only the SHA-256 of the secret is stored, so the URL itself is the credential.
 
-With `ALLOW_REGISTRATION=true`, anyone can create such a tunnel without an admin. The Rustart launcher uses
+With **Settings → Self-registration** switched on in the admin UI (off by default), anyone can create such a tunnel without an admin. The Rustart launcher uses
 this to expose its MCP server:
 
 ```sh

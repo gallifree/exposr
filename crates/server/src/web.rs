@@ -79,7 +79,7 @@ struct RegisterReq {
 /// Creates a client with one `http` service (or rotates its URL secret).
 async fn register(State(st): State<AppState>, body: Option<Json<RegisterReq>>) -> Response {
     let app = &st.app;
-    if !app.allow_registration {
+    if !app.allow_registration.load(std::sync::atomic::Ordering::Relaxed) {
         return (StatusCode::NOT_FOUND, "registration is disabled").into_response();
     }
     let Some(host) = &app.public_host else {

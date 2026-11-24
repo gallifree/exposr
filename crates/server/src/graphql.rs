@@ -13,6 +13,7 @@ use async_graphql::{
 use futures::{Stream, TryStreamExt};
 use mongodb::bson::{DateTime, Document, doc, oid::ObjectId};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 pub type AppSchema = Schema<Query, Mutation, Subscription>;
@@ -260,6 +261,8 @@ pub struct ServerInfo {
     /// Allowed public ports (`SERVICE_PORT_RANGE`), if restricted.
     pub port_range_start: Option<i32>,
     pub port_range_end: Option<i32>,
+    /// `POST /api/register` may create clients without an admin.
+    pub allow_registration: bool,
 }
 
 #[derive(SimpleObject, Clone)]
@@ -328,6 +331,7 @@ impl Query {
             uptime_seconds: app.started_at.elapsed().as_secs(),
             port_range_start: app.port_range.map(|r| r.0.into()),
             port_range_end: app.port_range.map(|r| r.1.into()),
+            allow_registration: app.allow_registration.load(Ordering::Relaxed),
         })
     }
 
@@ -487,6 +491,16 @@ impl Mutation {
         }
         ctx.insert_http_header(axum::http::header::SET_COOKIE, auth::clear_cookie());
         true
+    }
+
+    async fn set_allow_registration(&self, ctx: &Context<'_>, enabled: bool) -> Result<bool> {
+        let me = require(ctx)?;
+        let app = app(ctx);
+        app.store.set_allow_registration(enabled).await.map_err(internal)?;
+        app.allow_registration.store(enabled, Ordering::Relaxed);
+        let kind = if enabled { "settings.registration_enabled" } else { "settings.registration_disabled" };
+        app.store.log(kind, &me.username, None, Some(&me.username)).await;
+        Ok(enabled)
     }
 
     async fn change_password(&self, ctx: &Context<'_>, current: String, new_password: String) -> Result<bool> {

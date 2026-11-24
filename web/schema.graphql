@@ -55,6 +55,7 @@ type Live {
 type Mutation {
 	login(username: String!, password: String!): User!
 	logout: Boolean!
+	setAllowRegistration(enabled: Boolean!): Boolean!
 	changePassword(current: String!, newPassword: String!): Boolean!
 	createUser(username: String!, password: String!): User!
 	deleteUser(id: ID!): Boolean!
@@ -113,6 +114,10 @@ type ServerInfo {
 	"""
 	portRangeStart: Int
 	portRangeEnd: Int
+	"""
+	`POST /api/register` may create clients without an admin.
+	"""
+	allowRegistration: Boolean!
 }
 
 type Service {

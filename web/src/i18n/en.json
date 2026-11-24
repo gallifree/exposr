@@ -133,7 +133,9 @@
     "auth.failed": "Failed sign-in for {{subject}}",
     "user.created": "Admin {{subject}} created",
     "user.deleted": "Admin {{subject}} deleted",
-    "user.password_changed": "{{subject}} changed their password"
+    "user.password_changed": "{{subject}} changed their password",
+    "settings.registration_enabled": "{{subject}} enabled self-registration",
+    "settings.registration_disabled": "{{subject}} disabled self-registration"
   },
   "settings": {
     "title": "Settings",
@@ -151,7 +153,12 @@
     "adminDeleted": "Administrator \"{{name}}\" deleted",
     "deleteAdmin": "Delete administrator",
     "deleteAdminConfirm": "Delete \"{{name}}\"? They will be signed out immediately.",
-    "publicHostHint": "Set PUBLIC_HOST on the server so client commands use your public hostname."
+    "publicHostHint": "Set PUBLIC_HOST on the server so client commands use your public hostname.",
+    "registration": "Self-registration",
+    "registrationHint": "Lets apps create their own HTTP tunnel through POST /api/register, without an admin.",
+    "registrationNoHost": "PUBLIC_HOST is not set: registrations will be refused until it is.",
+    "registrationEnabled": "Self-registration enabled",
+    "registrationDisabled": "Self-registration disabled"
   },
   "errors": {
     "INTERNAL": "Something went wrong. Please try again.",

@@ -20,8 +20,6 @@ services:
       - ADMIN_PASSWORD=${SERVICE_PASSWORD_ADMIN}
       # Must match the published range below.
       - SERVICE_PORT_RANGE=${SERVICE_PORT_RANGE:-20000-20099}
-      # Lets apps (Rustart) create their own HTTP tunnel via POST /api/register.
-      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
     ports:
       # Tunnel control port (clients connect here, TLS).
       - "2333:2333"

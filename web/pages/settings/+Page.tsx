@@ -82,8 +82,25 @@ function ChangePassword() {
 
 function ServerCard() {
   const { t } = useTranslation();
-  const { data } = useQuery<{ serverInfo: ServerInfo }>("{ serverInfo { version controlPort publicHost fingerprint uptimeSeconds } }");
+  const toast = useToast();
+  const { data, reload } = useQuery<{ serverInfo: ServerInfo }>(
+    "{ serverInfo { version controlPort publicHost fingerprint uptimeSeconds allowRegistration } }",
+  );
+  const [busy, setBusy] = useState(false);
   const info = data?.serverInfo;
+
+  const setRegistration = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      await gql(`mutation($e: Boolean!) { setAllowRegistration(enabled: $e) }`, { e: enabled });
+      toast(t(enabled ? "settings.registrationEnabled" : "settings.registrationDisabled"));
+      reload();
+    } catch (e) {
+      toast(t(`errors.${e instanceof GqlError ? e.code : "INTERNAL"}`), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="card bg-base-100 border-base-200 border">
       <div className="card-body">
@@ -113,6 +130,22 @@ function ServerCard() {
                 <code className="flex-1 text-xs break-all">{info.fingerprint}</code>
                 <CopyButton value={info.fingerprint} />
               </dd>
+            </div>
+            <div className="border-base-200 border-t pt-3">
+              <label className="flex cursor-pointer items-start justify-between gap-4">
+                <span>
+                  <span className="block">{t("settings.registration")}</span>
+                  <span className="text-base-content/60 text-xs">{t("settings.registrationHint")}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary"
+                  checked={info.allowRegistration}
+                  disabled={busy}
+                  onChange={(e) => setRegistration(e.target.checked)}
+                />
+              </label>
+              {info.allowRegistration && !info.publicHost && <p className="text-warning mt-1 text-xs">{t("settings.registrationNoHost")}</p>}
             </div>
           </dl>
         )}

@@ -4,6 +4,7 @@ use crate::db::Store;
 use crate::engine::{Engine, EngineEvent};
 use mongodb::bson::{DateTime, doc, oid::ObjectId};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::warn;
@@ -16,8 +17,9 @@ pub struct App {
     pub admin_port: u16,
     pub public_host: Option<String>,
     pub port_range: Option<(u16, u16)>,
-    /// `POST /api/register` may create clients without an admin.
-    pub allow_registration: bool,
+    /// `POST /api/register` may create clients without an admin. Mirrors the
+    /// `settings` document, toggled from the admin UI.
+    pub allow_registration: AtomicBool,
     pub started_at: Instant,
     /// Engine traffic counters already added to the service documents.
     flushed: Mutex<HashMap<String, (u64, u64)>>,
@@ -43,7 +45,7 @@ impl App {
             admin_port,
             public_host,
             port_range,
-            allow_registration,
+            allow_registration: AtomicBool::new(allow_registration),
             started_at: Instant::now(),
             flushed: Mutex::default(),
             resync_lock: tokio::sync::Mutex::new(()),

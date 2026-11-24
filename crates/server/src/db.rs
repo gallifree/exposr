@@ -112,6 +112,23 @@ impl Store {
     pub fn events(&self) -> Collection<EventDoc> {
         self.db.collection("events")
     }
+    /// Server-wide settings changed from the admin UI: one document, `_id: "server"`.
+    fn settings(&self) -> Collection<mongodb::bson::Document> {
+        self.db.collection("settings")
+    }
+
+    pub async fn allow_registration(&self) -> Result<bool> {
+        let settings = self.settings().find_one(doc! { "_id": "server" }).await?;
+        Ok(settings.and_then(|d| d.get_bool("allow_registration").ok()).unwrap_or(false))
+    }
+
+    pub async fn set_allow_registration(&self, enabled: bool) -> Result<()> {
+        self.settings()
+            .update_one(doc! { "_id": "server" }, doc! { "$set": { "allow_registration": enabled } })
+            .upsert(true)
+            .await?;
+        Ok(())
+    }
 
     async fn ensure_indexes(&self) -> Result<()> {
         let unique = |keys| IndexModel::builder().keys(keys).options(IndexOptions::builder().unique(true).build()).build();

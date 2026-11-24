@@ -44,10 +44,6 @@ struct Args {
     admin_username: String,
     #[arg(long, env = "ADMIN_PASSWORD", hide_env_values = true)]
     admin_password: Option<String>,
-    /// Let anyone create a client with an HTTP tunnel to its 127.0.0.1:8765
-    /// through `POST /api/register` (used by the Rustart launcher's MCP server).
-    #[arg(long, env = "ALLOW_REGISTRATION")]
-    allow_registration: bool,
     /// Print the GraphQL schema (SDL) and exit.
     #[arg(long)]
     print_schema: bool,
@@ -118,6 +114,7 @@ async fn main() -> Result<()> {
     let tls = tls::load(args.tls_cert.clone(), args.tls_key.clone(), &args.data_dir)?;
     info!("tunnel certificate fingerprint: {}", tls.fingerprint);
 
+    let allow_registration = store.allow_registration().await?;
     let engine = Engine::new(args.service_bind_ip);
     let app = App::new(
         store,
@@ -127,7 +124,7 @@ async fn main() -> Result<()> {
         args.admin_addr.port(),
         args.public_host.clone(),
         args.service_port_range,
-        args.allow_registration,
+        allow_registration,
     );
     app.resync().await;
     app.spawn_background();

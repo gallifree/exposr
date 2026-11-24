@@ -133,7 +133,9 @@
     "auth.failed": "Échec de connexion pour {{subject}}",
     "user.created": "Administrateur {{subject}} créé",
     "user.deleted": "Administrateur {{subject}} supprimé",
-    "user.password_changed": "{{subject}} a changé son mot de passe"
+    "user.password_changed": "{{subject}} a changé son mot de passe",
+    "settings.registration_enabled": "{{subject}} a activé l'auto-inscription",
+    "settings.registration_disabled": "{{subject}} a désactivé l'auto-inscription"
   },
   "settings": {
     "title": "Paramètres",
@@ -151,7 +153,12 @@
     "adminDeleted": "Administrateur « {{name}} » supprimé",
     "deleteAdmin": "Supprimer l'administrateur",
     "deleteAdminConfirm": "Supprimer « {{name}} » ? Ses sessions seront fermées immédiatement.",
-    "publicHostHint": "Définissez PUBLIC_HOST sur le serveur pour que les commandes client utilisent votre nom d'hôte public."
+    "publicHostHint": "Définissez PUBLIC_HOST sur le serveur pour que les commandes client utilisent votre nom d'hôte public.",
+    "registration": "Auto-inscription",
+    "registrationHint": "Permet aux applications de créer leur propre tunnel HTTP via POST /api/register, sans administrateur.",
+    "registrationNoHost": "PUBLIC_HOST n'est pas défini : les inscriptions seront refusées tant qu'il ne l'est pas.",
+    "registrationEnabled": "Auto-inscription activée",
+    "registrationDisabled": "Auto-inscription désactivée"
   },
   "errors": {
     "INTERNAL": "Une erreur est survenue. Veuillez réessayer.",

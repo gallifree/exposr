@@ -62,6 +62,7 @@ export interface ServerInfo {
   uptimeSeconds: number;
   portRangeStart: number | null;
   portRangeEnd: number | null;
+  allowRegistration: boolean;
 }
 
 export interface Event {
