@@ -65,8 +65,8 @@ async fn tunnel(State(engine): State<Engine>, Path(p): Path<HashMap<String, Stri
     result.unwrap_or_else(|e| (StatusCode::BAD_GATEWAY, format!("tunnel unavailable: {e:#}")).into_response())
 }
 
-/// Where self-registered clients forward their tunnel (the Rustart MCP server).
-const REGISTERED_LOCAL_ADDR: &str = "127.0.0.1:8765";
+/// Where self-registered clients forward their tunnel unless they ask for another port (the Rustart MCP server).
+const REGISTERED_LOCAL_PORT: u16 = 8765;
 /// shortcut: one global budget for new registrations, per process; use a per-IP limit if it gets abused.
 const REGISTRATIONS_PER_HOUR: u32 = 30;
 
@@ -74,6 +74,8 @@ const REGISTRATIONS_PER_HOUR: u32 = 30;
 struct RegisterReq {
     /// Token of an already registered client: issues a new URL secret instead.
     token: Option<String>,
+    /// Local port (on the client's own loopback) the tunnel forwards to. Default: 8765.
+    port: Option<u16>,
 }
 
 /// Creates a client with one `http` service (or rotates its URL secret).
@@ -87,18 +89,27 @@ async fn register(State(st): State<AppState>, body: Option<Json<RegisterReq>>) -
     };
     let secret = auth::random_token(24);
     let http_key = proto::sha256_hex(secret.as_bytes());
-    let result = match body.and_then(|Json(b)| b.token) {
-        Some(token) => rotate(app, &token, &http_key).await.map(|()| None),
-        None => create(app, &http_key).await.map(Some),
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    // Unprivileged ports only; with a token and no port, the client's current port is kept.
+    if body.port.is_some_and(|p| p < 1024) {
+        return (StatusCode::BAD_REQUEST, "port must be 1024 or above").into_response();
+    }
+    let result = match body.token {
+        Some(token) => rotate(app, &token, &http_key, body.port).await.map(|port| (None, port)),
+        None => {
+            let port = body.port.unwrap_or(REGISTERED_LOCAL_PORT);
+            create(app, &http_key, port).await.map(|token| (Some(token), port))
+        }
     };
     match result {
-        Ok(token) => {
+        Ok((token, local_port)) => {
             app.resync().await;
             Json(json!({
                 "server": format!("{host}:{}", app.control_port),
                 "fingerprint": app.fingerprint,
                 "token": token,
                 "path": format!("/t/{secret}"),
+                "local_port": local_port,
             }))
             .into_response()
         }
@@ -106,20 +117,24 @@ async fn register(State(st): State<AppState>, body: Option<Json<RegisterReq>>) -
     }
 }
 
-async fn rotate(app: &crate::app::App, token: &str, http_key: &str) -> Result<(), Response> {
+/// Returns the local port the client's tunnel forwards to.
+async fn rotate(app: &crate::app::App, token: &str, http_key: &str, port: Option<u16>) -> Result<u16, Response> {
     let filter = doc! { "token_hash": proto::sha256_hex(token.as_bytes()) };
     let client = app.store.clients().find_one(filter).await.map_err(internal)?;
     let client = client.ok_or_else(|| (StatusCode::UNAUTHORIZED, "unknown token").into_response())?;
-    app.store
-        .services()
-        .update_many(doc! { "client_id": client.id, "protocol": "http" }, doc! { "$set": { "http_key": http_key } })
-        .await
-        .map_err(internal)?;
+    let filter = doc! { "client_id": client.id, "protocol": "http" };
+    let mut set = doc! { "http_key": http_key };
+    if let Some(port) = port {
+        set.insert("local_addr", format!("127.0.0.1:{port}"));
+    }
+    app.store.services().update_many(filter.clone(), doc! { "$set": set }).await.map_err(internal)?;
     app.store.log("client.url_rotated", &client.name, None, None).await;
-    Ok(())
+    let service = app.store.services().find_one(filter).await.map_err(internal)?;
+    let current = service.and_then(|s| s.local_addr.rsplit(':').next()?.parse().ok());
+    Ok(port.or(current).unwrap_or(REGISTERED_LOCAL_PORT))
 }
 
-async fn create(app: &crate::app::App, http_key: &str) -> Result<String, Response> {
+async fn create(app: &crate::app::App, http_key: &str, port: u16) -> Result<String, Response> {
     static BUDGET: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
     {
         let mut b = BUDGET.lock().unwrap();
@@ -148,7 +163,7 @@ async fn create(app: &crate::app::App, http_key: &str) -> Result<String, Respons
         client_id: client.id,
         protocol: proto::Protocol::Http,
         bind_port: 0,
-        local_addr: REGISTERED_LOCAL_ADDR.into(),
+        local_addr: format!("127.0.0.1:{port}"),
         enabled: true,
         created_at: DateTime::now(),
         bytes_in: 0,

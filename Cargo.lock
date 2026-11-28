@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "exposr-client"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "exposr-proto"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "exposr-server"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "argon2",

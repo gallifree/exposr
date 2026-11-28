@@ -99,11 +99,12 @@ this to expose its MCP server:
 
 ```sh
 curl -X POST https://t.example.com/api/register -H 'Content-Type: application/json' -d '{}'
-# {"server":"t.example.com:2333","fingerprint":"…","token":"…","path":"/t/<secret>"}
+# {"server":"t.example.com:2333","fingerprint":"…","token":"…","path":"/t/<secret>","local_port":8765}
 ```
 
-The new client gets one `http` service forwarding to `127.0.0.1:8765`. Sending `{"token":"…"}` instead
-issues a new secret for that client (the old URL stops working). New registrations are limited to 30 per hour.
+The new client gets one `http` service forwarding to `127.0.0.1:8765`, or to another port of its own
+loopback with `{"port":8770}` (1024 or above; Phone MCP uses this). Sending `{"token":"…"}` instead
+issues a new secret for that client (the old URL stops working), and moves it to `port` if given. New registrations are limited to 30 per hour.
 
 ## How configuration reaches the engine
 
